@@ -16,6 +16,8 @@ type Position = (Float, Float)
 -- data Player2Move a = Player2Move (MVar (a, [MVar ()])) (MVar ())
 type Player1Move = MVar Float
 type Player2Move = MVar Float
+type BotPos = MVar Float
+type BallYPos = MVar Float
 
 -- | Data describing the state of the pong game.
 data PongGame = Game
@@ -27,7 +29,7 @@ data PongGame = Game
   , keys :: S.Set Key
   } deriving Show
 
-type State = (PongGame, Player1Move, Player2Move)
+type State = (PongGame, Player1Move, Player2Move, BallYPos)
 
 ballRadius :: Radius
 ballRadius = 10
@@ -48,6 +50,23 @@ movePlayer move dist = do
   -- return ()
 
 -- movePlayer2 :: (MVar Integer) -> PongGame -> IO()
+
+moveBot :: (MVar Float) -> PongGame -> IO()
+moveBot botPos game = do
+  bot <- readMVar botPos
+  if fst (ballLoc game) > bot
+    then do
+      putMVar botPos (bot + 10)
+      threadDelay 100000
+      moveBot botPos game
+  else if fst (ballLoc game) < bot
+    then do
+      putMVar botPos (bot - 10)
+      threadDelay 100000
+      moveBot botPos game
+  else do
+    threadDelay 100000
+    moveBot botPos game
 
 valueToMove :: Integer -> Float
 valueToMove x
@@ -109,11 +128,13 @@ main = do
   let initState = randomInitialState gen (difficultyFunc difficulty)
   p1 <- newMVar 0.0
   p2 <- newMVar 0.0
+  ball <- newMVar 0.0
+  forkIO $ moveBot p2 initState
   -- forkIO (movePlayer1 (p1) initState)
-  playIO window background fps (initState, p1, p2) render handleKeys2 update
+  playIO window background fps (initState, p1, p2, ball) render handleKeys2 update
 
 render :: State -> IO Picture
-render (game, _, _) = return $ 
+render (game, _, _, _) = return $ 
   pictures [ball, walls,
             mkPaddle white 700 $ player1 game,
             mkPaddle white (-700) $ player2 game]
@@ -143,7 +164,7 @@ render (game, _, _) = return $
 
 -- | Update the game by moving the ball.
 update :: Float -> State -> IO State
-update seconds (game, p1, p2) = 
+update seconds (game, p1, p2, ball) = 
   if gameEnded game'
   then do
     putStrLn "Game ended!"
@@ -151,7 +172,8 @@ update seconds (game, p1, p2) =
   else do
     m1 <- readMVar p1
     m2 <- readMVar p2
-    return (game' {player1 = m1, player2 = m2}, p1, p2)
+    putMVar ball (snd (ballLoc game'))
+    return (game' {player1 = m1, player2 = m2}, p1, p2, ball)
 
     -- if S.member (Char 'd') (keys game)
     --   then do
@@ -213,11 +235,11 @@ gameEnded game = farLeft || farRight
 
 -- | Respond to key events.
 handleKeys :: Event -> State -> IO State
-handleKeys (EventKey k Down _ _) (game, p1, p2) = return $
- (game { keys = S.insert k (keys game)}, p1, p2)
-handleKeys (EventKey k Up _ _) (game, p1, p2) = return $
- (game { keys = S.delete k (keys game)}, p1, p2)
-handleKeys _ (game, p1, p2) = return (game, p1, p2)
+handleKeys (EventKey k Down _ _) (game, p1, p2, ball) = return $
+ (game { keys = S.insert k (keys game)}, p1, p2, ball)
+handleKeys (EventKey k Up _ _) (game, p1, p2, ball) = return $
+ (game { keys = S.delete k (keys game)}, p1, p2, ball)
+handleKeys _ (game, p1, p2, ball) = return (game, p1, p2, ball)
 -- handleKeys event game = case event of
 --   EventKey (Char 'q') _ _ _ -> exitSuccess
 --   EventKey (Char 'e') _ _ _ -> return $
@@ -231,12 +253,20 @@ handleKeys _ (game, p1, p2) = return (game, p1, p2)
 --   _ -> return game
 
 handleKeys2 :: Event -> State -> IO State
-handleKeys2 (EventKey (SpecialKey KeyUp) _ _ _) (game, p1, p2) = do
+handleKeys2 (EventKey (SpecialKey KeyUp) _ _ _) (game, p1, p2, ball) = do
   forkIO $ movePlayer p1 10
-  return (game, p1, p2)
-handleKeys2 (EventKey (Char 'e') _ _ _) (game, p1, p2) = do
-  forkIO $ movePlayer p2 10
-  return (game, p1, p2)
+  return (game, p1, p2, ball)
+handleKeys2 (EventKey (SpecialKey KeyDown) _ _ _) (game, p1, p2, ball) = do
+  forkIO $ movePlayer p1 (-10)
+  return (game, p1, p2, ball)
+-- handleKeys2 (EventKey (Char 'e') _ _ _) (game, p1, p2, ball) = do
+--   forkIO $ movePlayer p2 10
+--   return (game, p1, p2, ball)
+-- handleKeys2 (EventKey (Char 'd') _ _ _) (game, p1, p2, ball) = do
+--   forkIO $ movePlayer p2 (-10)
+--   return (game, p1, p2, ball)
+handleKeys2 (EventKey (Char 'q') _ _ _) (game, p1, p2, ball) = do
+  exitSuccess 
 handleKeys2 _ state = return state
 
 -- | Given position and radius of the ball, return whether a collision occurred.
