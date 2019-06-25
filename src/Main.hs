@@ -3,30 +3,57 @@ module Main(main) where
 import Graphics.Gloss.Interface.IO.Game
 import System.Exit
 import System.Random
+import Control.Concurrent
+import Control.Concurrent.MVar
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TVar
 import qualified Data.Set as S
 
 
 type Radius = Float
 type Position = (Float, Float)
-
-ballRadius :: Radius
-ballRadius = 10
+-- data Player1Move a = Player1Move (MVar (a, [MVar ()])) (MVar ())
+-- data Player2Move a = Player2Move (MVar (a, [MVar ()])) (MVar ())
+type Player1Move = MVar Float
+type Player2Move = MVar Float
 
 -- | Data describing the state of the pong game.
 data PongGame = Game
   { ballLoc :: Position        -- ^ Pong ball (x, y) location.
   , ballVel :: (Float, Float)  -- ^ Pong ball (x, y) velocity.
-  , player1 :: Float           -- ^ Left player paddle height.
+  , player1 :: Float          -- ^ Left player paddle height.
                                -- Zero is the middle of the screen.
   , player2 :: Float           -- ^ Right player paddle height.
   , keys :: S.Set Key
   } deriving Show
 
-data DificultDisplay = Game2
-  { easy :: Float
-    , medium :: Float
-    , hard :: Float
-  } deriving Show
+type State = (PongGame, Player1Move, Player2Move)
+
+ballRadius :: Radius
+ballRadius = 10
+
+movePlayer :: (MVar Float) -> Float -> IO()
+movePlayer move dist = do 
+  m <- takeMVar move
+  putMVar move (m + dist)
+  return ()
+  -- if m < 1
+  --   then do 
+  --     putMVar move (m - 1)
+  --     movePlayer1 move
+  --   else putMVar move (m - 1)
+  -- game {player1 = player1 game + val}
+  -- putMVar move (m - 1)
+  -- movePlayer1 move game
+  -- return ()
+
+-- movePlayer2 :: (MVar Integer) -> PongGame -> IO()
+
+valueToMove :: Integer -> Float
+valueToMove x
+  | x < 1 = - 10
+  | x > 1 = 10
+  | otherwise = 0
 
 randomInitialState :: StdGen -> Float -> PongGame
 randomInitialState gen magnitude = Game
@@ -70,20 +97,23 @@ main = do
   gen <- getStdGen
   print "Write [e] for easy, [m] for medium or [h] for hard" 
   difficulty <- getChar
-
+  -- Player1Move <- newMVar 0
 
   -- if difficulty == 'e'
   --   then let mag = 200
   --   else if difficulty == 'm'
   --     then let mag = 600
   --     else let mag = 1000
-
+  
 
   let initState = randomInitialState gen (difficultyFunc difficulty)
-  playIO window background fps initState render handleKeys update
+  p1 <- newMVar 0.0
+  p2 <- newMVar 0.0
+  -- forkIO (movePlayer1 (p1) initState)
+  playIO window background fps (initState, p1, p2) render handleKeys2 update
 
-render :: PongGame -> IO Picture
-render game = return $ 
+render :: State -> IO Picture
+render (game, _, _) = return $ 
   pictures [ball, walls,
             mkPaddle white 700 $ player1 game,
             mkPaddle white (-700) $ player2 game]
@@ -112,45 +142,62 @@ render game = return $
     paddleColor = white
 
 -- | Update the game by moving the ball.
-update :: Float -> PongGame -> IO PongGame
-update seconds game = 
+update :: Float -> State -> IO State
+update seconds (game, p1, p2) = 
   if gameEnded game'
   then do
     putStrLn "Game ended!"
     exitSuccess
-  else
-    if S.member (SpecialKey KeyUp) (keys game)
-      then do
-        let game' = paddleBounce . wallBounce . moveBall seconds $ game
-        if player1 game' < height/2 - 40
-          then do
-            return game' { player1 = player1 game' + 10 }
-        else return game'
-    else if S.member (SpecialKey KeyDown) (keys game)
-      then do
-        let game' = paddleBounce . wallBounce . moveBall seconds $ game
-        if player1 game' > -height/2 + 40
-          then do
-            return game' { player1 = player1 game' - 10 }
-        else return game'
-    else if S.member (Char 'e') (keys game)
-      then do
-        let game' = paddleBounce . wallBounce . moveBall seconds $ game
-        if player2 game' < height/2 - 40
-          then do
-            return game' { player2 = player2 game' + 10 }
-        else return game'
-    else if S.member (Char 'd') (keys game)
-      then do
-        let game' = paddleBounce . wallBounce . moveBall seconds $ game
-        if player2 game' > -height/2 + 40
-          then do
-            return game' { player2 = player2 game' - 10 }
-        else return game'
-    else if S.member (Char 'q') (keys game)
-      then do
-        exitSuccess
-    else return game'
+  else do
+    m1 <- readMVar p1
+    m2 <- readMVar p2
+    return (game' {player1 = m1, player2 = m2}, p1, p2)
+
+    -- if S.member (Char 'd') (keys game)
+    --   then do
+    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
+    --     if player2 game' > -height/2 + 40
+    --       then do
+    --         return (game' { player2 = player2 game' - 10 }, p1, p2)
+    --     else return (game', p1, p2)
+    -- else if S.member (Char 'q') (keys game)
+    --   then do
+    --     exitSuccess
+    -- else return (game', p1, p2)
+
+
+    -- if S.member (SpecialKey KeyUp) (keys game)
+    --   then do
+    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
+    --     if player1 game' < height/2 - 40
+    --       then do
+    --         return game' { player1 = player1 game' + 10 }
+    --     else return game'
+    -- else if S.member (SpecialKey KeyDown) (keys game)
+    --   then do
+    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
+    --     if player1 game' > -height/2 + 40
+    --       then do
+    --         return game' { player1 = player1 game' - 10 }
+    --     else return game'
+    -- else if S.member (Char 'e') (keys game)
+    --   then do
+    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
+    --     if player2 game' < height/2 - 40
+    --       then do
+    --         return game' { player2 = player2 game' + 10 }
+    --     else return game'
+    -- else if S.member (Char 'd') (keys game)
+    --   then do
+    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
+    --     if player2 game' > -height/2 + 40
+    --       then do
+    --         return game' { player2 = player2 game' - 10 }
+    --     else return game'
+    -- else if S.member (Char 'q') (keys game)
+    --   then do
+    --     exitSuccess
+    -- else return game'
   
 
   where
@@ -165,12 +212,12 @@ gameEnded game = farLeft || farRight
     farRight = x > fromIntegral width / 2 - 2 * ballRadius
 
 -- | Respond to key events.
-handleKeys :: Event -> PongGame -> IO PongGame
-handleKeys (EventKey k Down _ _) game = return $
- game { keys = S.insert k (keys game)}
-handleKeys (EventKey k Up _ _) game = return $
- game { keys = S.delete k (keys game)}
-handleKeys _ game = return game
+handleKeys :: Event -> State -> IO State
+handleKeys (EventKey k Down _ _) (game, p1, p2) = return $
+ (game { keys = S.insert k (keys game)}, p1, p2)
+handleKeys (EventKey k Up _ _) (game, p1, p2) = return $
+ (game { keys = S.delete k (keys game)}, p1, p2)
+handleKeys _ (game, p1, p2) = return (game, p1, p2)
 -- handleKeys event game = case event of
 --   EventKey (Char 'q') _ _ _ -> exitSuccess
 --   EventKey (Char 'e') _ _ _ -> return $
@@ -182,6 +229,15 @@ handleKeys _ game = return game
 --   EventKey (SpecialKey KeyDown) _ _ _ ->  return $
 --     game { player1 = player1 game - 10 }
 --   _ -> return game
+
+handleKeys2 :: Event -> State -> IO State
+handleKeys2 (EventKey (SpecialKey KeyUp) _ _ _) (game, p1, p2) = do
+  forkIO $ movePlayer p1 10
+  return (game, p1, p2)
+handleKeys2 (EventKey (Char 'e') _ _ _) (game, p1, p2) = do
+  forkIO $ movePlayer p2 10
+  return (game, p1, p2)
+handleKeys2 _ state = return state
 
 -- | Given position and radius of the ball, return whether a collision occurred.
 wallCollision :: Position -> Radius -> Bool

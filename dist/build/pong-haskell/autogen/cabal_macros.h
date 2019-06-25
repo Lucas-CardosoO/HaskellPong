@@ -55,6 +55,17 @@
   (major1) == 1 && (major2) == 1 && (minor) <= 0)
 #endif /* MIN_VERSION_random */
 
+/* package stm-2.5.0.0 */
+#ifndef VERSION_stm
+#define VERSION_stm "2.5.0.0"
+#endif /* VERSION_stm */
+#ifndef MIN_VERSION_stm
+#define MIN_VERSION_stm(major1,major2,minor) (\
+  (major1) <  2 || \
+  (major1) == 2 && (major2) <  5 || \
+  (major1) == 2 && (major2) == 5 && (minor) <= 0)
+#endif /* MIN_VERSION_stm */
+
 /* tool alex-3.2.4 */
 #ifndef TOOL_VERSION_alex
 #define TOOL_VERSION_alex "3.2.4"
