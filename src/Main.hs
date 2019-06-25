@@ -22,8 +22,14 @@ data PongGame = Game
   , keys :: S.Set Key
   } deriving Show
 
-randomInitialState :: StdGen -> PongGame
-randomInitialState gen = Game
+data DificultDisplay = Game2
+  { easy :: Float
+    , medium :: Float
+    , hard :: Float
+  } deriving Show
+
+randomInitialState :: StdGen -> Float -> PongGame
+randomInitialState gen magnitude = Game
   { ballLoc = (a, b)
   , ballVel = (c', d')
   , player1 = 0
@@ -34,7 +40,7 @@ randomInitialState gen = Game
     a:b:c:d:_ = randomRs (-50, 50) gen
     c' = c * mag
     d' = d * mag
-    mag = 200 / sqrt (c^2 + d^2)
+    mag = magnitude / sqrt (c^2 + d^2)
 
 width, height, offset :: Num a => a
 width = 1480
@@ -50,10 +56,30 @@ background = black
 fps :: Int
 fps = 60
 
+
+difficultyFunc :: Char -> Float
+difficultyFunc c = 
+  case c of
+    'e' -> 200
+    'm' -> 600
+    'h' -> 1000
+    _ -> 600
+
 main :: IO ()
 main = do
   gen <- getStdGen
-  let initState = randomInitialState gen
+  print "Write [e] for easy, [m] for medium or [h] for hard" 
+  difficulty <- getChar
+
+
+  -- if difficulty == 'e'
+  --   then let mag = 200
+  --   else if difficulty == 'm'
+  --     then let mag = 600
+  --     else let mag = 1000
+
+
+  let initState = randomInitialState gen (difficultyFunc difficulty)
   playIO window background fps initState render handleKeys update
 
 render :: PongGame -> IO Picture
