@@ -29,7 +29,7 @@ data PongGame = Game
   , keys :: S.Set Key
   } deriving Show
 
-type State = (PongGame, Player1Move, Player2Move, BallYPos)
+type State = (PongGame, Player1Move, BotPos, BallYPos)
 
 ballRadius :: Radius
 ballRadius = 10
@@ -51,22 +51,25 @@ movePlayer move dist = do
 
 -- movePlayer2 :: (MVar Integer) -> PongGame -> IO()
 
-moveBot :: (MVar Float) -> PongGame -> IO()
-moveBot botPos game = do
+moveBot :: BotPos -> BallYPos -> IO()
+moveBot botPos ballY = do
   bot <- readMVar botPos
-  if fst (ballLoc game) > bot
+  ball <- readMVar ballY
+  if ball > bot
     then do
-      putMVar botPos (bot + 10)
-      threadDelay 100000
-      moveBot botPos game
-  else if fst (ballLoc game) < bot
+      bot2 <- takeMVar botPos
+      putMVar botPos (bot2 + 10)
+      threadDelay 80000
+      moveBot botPos ballY
+  else if ball < bot
     then do
-      putMVar botPos (bot - 10)
-      threadDelay 100000
-      moveBot botPos game
+      bot2 <- takeMVar botPos
+      putMVar botPos (bot2 - 10)
+      threadDelay 80000
+      moveBot botPos ballY
   else do
-    threadDelay 100000
-    moveBot botPos game
+    threadDelay 80000
+    moveBot botPos ballY
 
 valueToMove :: Integer -> Float
 valueToMove x
@@ -129,9 +132,9 @@ main = do
   p1 <- newMVar 0.0
   p2 <- newMVar 0.0
   ball <- newMVar 0.0
-  forkIO $ moveBot p2 initState
+  forkIO $ (moveBot p2 ball)
   -- forkIO (movePlayer1 (p1) initState)
-  playIO window background fps (initState, p1, p2, ball) render handleKeys2 update
+  playIO window background fps (initState, p1, p2, ball) render handleKeys update
 
 render :: State -> IO Picture
 render (game, _, _, _) = return $ 
@@ -172,8 +175,9 @@ update seconds (game, p1, p2, ball) =
   else do
     m1 <- readMVar p1
     m2 <- readMVar p2
+    b <- takeMVar ball
     putMVar ball (snd (ballLoc game'))
-    return (game' {player1 = m1, player2 = m2}, p1, p2, ball)
+    -- return (game' {player1 = m1, player2 = m2}, p1, p2, ball)
 
     -- if S.member (Char 'd') (keys game)
     --   then do
@@ -188,20 +192,20 @@ update seconds (game, p1, p2, ball) =
     -- else return (game', p1, p2)
 
 
-    -- if S.member (SpecialKey KeyUp) (keys game)
-    --   then do
-    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
-    --     if player1 game' < height/2 - 40
-    --       then do
-    --         return game' { player1 = player1 game' + 10 }
-    --     else return game'
-    -- else if S.member (SpecialKey KeyDown) (keys game)
-    --   then do
-    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
-    --     if player1 game' > -height/2 + 40
-    --       then do
-    --         return game' { player1 = player1 game' - 10 }
-    --     else return game'
+    if S.member (SpecialKey KeyUp) (keys game)
+      then do
+        let game' = paddleBounce . wallBounce . moveBall seconds $ game
+        if player1 game' < height/2 - 40
+          then do
+            return (game' { player1 = player1 game' + 10, player2 = m2 }, p1, p2, ball)
+        else return (game' {player2 = m2}, p1, p2, ball)
+    else if S.member (SpecialKey KeyDown) (keys game)
+      then do
+        let game' = paddleBounce . wallBounce . moveBall seconds $ game
+        if player1 game' > -height/2 + 40
+          then do
+            return (game' { player1 = player1 game' - 10, player2 = m2 }, p1, p2, ball)
+        else return (game' {player2 = m2}, p1, p2, ball)
     -- else if S.member (Char 'e') (keys game)
     --   then do
     --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
@@ -216,10 +220,10 @@ update seconds (game, p1, p2, ball) =
     --       then do
     --         return game' { player2 = player2 game' - 10 }
     --     else return game'
-    -- else if S.member (Char 'q') (keys game)
-    --   then do
-    --     exitSuccess
-    -- else return game'
+    else if S.member (Char 'q') (keys game)
+      then do
+        exitSuccess
+    else return (game' {player2 = m2}, p1, p2, ball)
   
 
   where
