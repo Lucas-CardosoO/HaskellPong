@@ -151,10 +151,15 @@ main = do
   playIO window background fps (initState, p1, p2, ball, playerPoints, botPoints) render handleKeys update
 
 render :: State -> IO Picture
-render (game, _, _, _, scorePlayer, _) = do
+render (game, _, _, _, _, _) = do
   -- p1 <- readMVar scorePlayer
   -- bot <- readMVar scoreBot
-  return $ pictures [ball, walls, mkPaddle white 700 $ player1 game, mkPaddle white (-700) $ player2 game, color white $ translate (0) (240) $ scale (0.8) (0.8) $ (Text "-"), renderScore (scorePlayer1 game) 200, renderScore (scoreBot game) (-200)]
+  if gameEnded game
+    then do
+      if scorePlayer1 game > scoreBot game
+        then return $ pictures [color white $ translate (-650) (200) $ scale (0.8) (0.8) $ (Text "Congratulations! You Won!"), color white $ translate (-350) (0) $ scale (0.6) (0.6) $ (Text "Press [q] to quit")]
+      else return $ pictures [color white $ translate (-400) (200) $ scale (0.8) (0.8) $ (Text "Sorry, you Lost"), color white $ translate (-350) (0) $ scale (0.6) (0.6) $ (Text "Press [q] to quit")]
+  else return $ pictures [ball, walls, mkPaddle white 700 $ player1 game, mkPaddle white (-700) $ player2 game, color white $ translate (0) (240) $ scale (0.8) (0.8) $ (Text "-"), renderScore (scorePlayer1 game) 200, renderScore (scoreBot game) (-200)]
   where
     --  The pong ball.
     ball = uncurry translate (ballLoc game) $ color ballColor $ circleSolid ballRadius
@@ -173,7 +178,7 @@ render (game, _, _, _, scorePlayer, _) = do
     --  Make a paddle of a given border and vertical offset.
     mkPaddle :: Color -> Float -> Float -> Picture 
     mkPaddle col x y = pictures
-      [ translate x y $ color col $ rectangleSolid 26 86
+      [ translate x y $ color col $ rectangleSolid 20 80
       , translate x y $ color paddleColor $ rectangleSolid 20 80
       ]
 
@@ -187,8 +192,10 @@ update :: Float -> State -> IO State
 update seconds (game, p1, p2, ball, score1, scoreBot) = 
   if gameEnded game'
   then do
-    putStrLn "Game ended!"
-    exitSuccess
+    if S.member (Char 'q') (keys game)
+      then do
+        exitSuccess
+    else return (game', p1, p2, ball, score1, scoreBot)
   else if checkForGoalBool game'
     then do
       gen <- getStdGen
@@ -226,12 +233,12 @@ update seconds (game, p1, p2, ball, score1, scoreBot) =
 
 -- | Check if a game has ended.
 gameEnded :: PongGame -> Bool
-gameEnded game = scorePlayer1 game > 2 || scoreBot game > 2
+gameEnded game = scorePlayer1 game >= 3 || scoreBot game >= 3
 
 checkForGoal :: PongGame -> PongGame
 checkForGoal game
-  | fst(ballLoc game) < -fromIntegral width / 2 + 2 * ballRadius = game {scorePlayer1 = scorePlayer1 game + 1}
-  | fst(ballLoc game) > fromIntegral width / 2 - 2 * ballRadius = game {scoreBot = scoreBot game + 1}
+  | (fst(ballLoc game) < -fromIntegral width / 2 + 2 * ballRadius) && not (gameEnded game) = game {scorePlayer1 = scorePlayer1 game + 1}
+  | (fst(ballLoc game) > fromIntegral width / 2 - 2 * ballRadius) && not (gameEnded game) = game {scoreBot = scoreBot game + 1}
   | otherwise = game
 
 checkForGoalBool :: PongGame -> Bool
@@ -268,8 +275,8 @@ wallBounce game = game { ballVel = (vx, vy') }
 
 paddleCollision :: Position -> PongGame -> Bool
 paddleCollision (x, y) game = 
-  (x + ballRadius > 700 && abs (y - player1 game) < 40) || 
-  (x - ballRadius < -700 && abs (y - player2 game) < 40)
+  ((x + ballRadius + 10) > 700 && abs (y - player1 game) < 40) || 
+  ((x - ballRadius - 10) < -700 && abs (y - player2 game) < 40)
 
 paddleBounce :: PongGame -> PongGame
 paddleBounce game = game { ballVel = (vx', vy) }
@@ -291,5 +298,3 @@ moveBall seconds game = game { ballLoc = (x', y') }
     -- New locations.
     x' = x + vx * seconds
     y' = y + vy * seconds
-
--- https://stackoverflow.com/questions/52871673/haskell-gloss-do-something-every-frame-key-is-pressed Link to make movement better
