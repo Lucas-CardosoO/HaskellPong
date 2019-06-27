@@ -63,9 +63,6 @@ valueToMove x
   | x > 1 = 10
   | otherwise = 0
 
--- changeGoal :: MVar Int -> IO()
--- changeGoal = do
---   if
 
 randomInitialState :: StdGen -> Char -> PongGame
 randomInitialState gen dif = Game
@@ -158,7 +155,7 @@ render (game, _, _, _, _, _) = do
     then do
       if scorePlayer1 game > scoreBot game
         then return $ pictures [color white $ translate (-650) (200) $ scale (0.8) (0.8) $ (Text "Congratulations! You Won!"), color white $ translate (-350) (0) $ scale (0.6) (0.6) $ (Text "Press [q] to quit")]
-      else return $ pictures [color white $ translate (-400) (200) $ scale (0.8) (0.8) $ (Text "Sorry, you Lost"), color white $ translate (-350) (0) $ scale (0.6) (0.6) $ (Text "Press [q] to quit")]
+      else return $ pictures [color white $ translate (-250) (200) $ scale (0.8) (0.8) $ (Text "You Lose!"), color white $ translate (-350) (0) $ scale (0.6) (0.6) $ (Text "Press [q] to quit")]
   else return $ pictures [ball, walls, mkPaddle white 700 $ player1 game, mkPaddle white (-700) $ player2 game, color white $ translate (0) (240) $ scale (0.8) (0.8) $ (Text "-"), renderScore (scorePlayer1 game) 200, renderScore (scoreBot game) (-200)]
   where
     --  The pong ball.
