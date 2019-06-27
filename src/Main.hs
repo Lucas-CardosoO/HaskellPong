@@ -12,64 +12,50 @@ import qualified Data.Set as S
 
 type Radius = Float
 type Position = (Float, Float)
--- data Player1Move a = Player1Move (MVar (a, [MVar ()])) (MVar ())
--- data Player2Move a = Player2Move (MVar (a, [MVar ()])) (MVar ())
 type Player1Move = MVar Float
 type Player2Move = MVar Float
 type BotPos = MVar Float
 type BallYPos = MVar Float
+type ScorePlayer = MVar Int
+type ScoreBot = MVar Int
 
 -- | Data describing the state of the pong game.
 data PongGame = Game
   { ballLoc :: Position        -- ^ Pong ball (x, y) location.
   , ballVel :: (Float, Float)  -- ^ Pong ball (x, y) velocity.
-  , player1 :: Float          -- ^ Left player paddle height.
+  , player1 :: Float          -- ^ Right player paddle height.
                                -- Zero is the middle of the screen.
-  , player2 :: Float           -- ^ Right player paddle height.
-  , keys :: S.Set Key
+  , player2 :: Float           -- ^ Left player paddle height.
+  , keys :: S.Set Key         -- Set of keys that makes movement continuous
+  , scorePlayer1 :: Int       -- Score for player
+  , scoreBot :: Int           -- Score for bot
+  , difficulty :: Char        -- Difficulty of game
   } deriving Show
 
-type State = (PongGame, Player1Move, BotPos, BallYPos)
+type State = (PongGame, Player1Move, BotPos, BallYPos, ScorePlayer, ScoreBot)
 
 ballRadius :: Radius
 ballRadius = 10
 
-movePlayer :: (MVar Float) -> Float -> IO()
-movePlayer move dist = do 
-  m <- takeMVar move
-  putMVar move (m + dist)
-  return ()
-  -- if m < 1
-  --   then do 
-  --     putMVar move (m - 1)
-  --     movePlayer1 move
-  --   else putMVar move (m - 1)
-  -- game {player1 = player1 game + val}
-  -- putMVar move (m - 1)
-  -- movePlayer1 move game
-  -- return ()
-
--- movePlayer2 :: (MVar Integer) -> PongGame -> IO()
-
-moveBot :: BotPos -> BallYPos -> IO()
-moveBot botPos ballY = do
+moveBot :: BotPos -> BallYPos -> Float -> IO()
+moveBot botPos ballY move = do
   bot <- readMVar botPos
   ball <- readMVar ballY
-  if ball > bot
+  if ball > (bot + 20)
     then do
       bot2 <- takeMVar botPos
-      putMVar botPos (bot2 + 10)
-      threadDelay 80000
-      moveBot botPos ballY
-  else if ball < bot
+      putMVar botPos (bot2 + move)
+      threadDelay 60000--16667
+      moveBot botPos ballY move
+  else if ball < (bot - 20)
     then do
       bot2 <- takeMVar botPos
-      putMVar botPos (bot2 - 10)
-      threadDelay 80000
-      moveBot botPos ballY
+      putMVar botPos (bot2 - move)
+      threadDelay 60000--16667
+      moveBot botPos ballY move
   else do
     threadDelay 80000
-    moveBot botPos ballY
+    moveBot botPos ballY move
 
 valueToMove :: Integer -> Float
 valueToMove x
@@ -77,15 +63,41 @@ valueToMove x
   | x > 1 = 10
   | otherwise = 0
 
-randomInitialState :: StdGen -> Float -> PongGame
-randomInitialState gen magnitude = Game
+-- changeGoal :: MVar Int -> IO()
+-- changeGoal = do
+--   if
+
+randomInitialState :: StdGen -> Char -> PongGame
+randomInitialState gen dif = Game
   { ballLoc = (a, b)
   , ballVel = (c', d')
   , player1 = 0
   , player2 = 0
   , keys = S.empty
+  , scorePlayer1 = 0
+  , scoreBot = 0
+  , difficulty = dif
   }
   where
+    magnitude = difficultyFunc dif
+    a:b:c:d:_ = randomRs (-50, 50) gen
+    c' = c * mag
+    d' = d * mag
+    mag = magnitude / sqrt (c^2 + d^2)
+
+randomGoalState  :: StdGen -> PongGame -> PongGame
+randomGoalState gen game = Game
+  { ballLoc = (a, b)
+  , ballVel = (c', d')
+  , player1 = player1 game
+  , player2 = player2 game
+  , keys = keys game
+  , scorePlayer1 = scorePlayer1 game
+  , scoreBot = scoreBot game
+  , difficulty = difficulty game
+  }
+  where
+    magnitude = difficultyFunc $ difficulty game
     a:b:c:d:_ = randomRs (-50, 50) gen
     c' = c * mag
     d' = d * mag
@@ -110,37 +122,39 @@ difficultyFunc :: Char -> Float
 difficultyFunc c = 
   case c of
     'e' -> 200
-    'm' -> 600
-    'h' -> 1000
-    _ -> 600
+    'm' -> 400
+    'h' -> 600
+    _ -> 400
+
+difficultyFuncMovement :: Char -> Float
+difficultyFuncMovement c = 
+  case c of
+    'e' -> 10
+    'm' -> 20
+    'h' -> 30
+    _ -> 20
 
 main :: IO ()
 main = do
   gen <- getStdGen
   print "Write [e] for easy, [m] for medium or [h] for hard" 
   difficulty <- getChar
-  -- Player1Move <- newMVar 0
 
-  -- if difficulty == 'e'
-  --   then let mag = 200
-  --   else if difficulty == 'm'
-  --     then let mag = 600
-  --     else let mag = 1000
-  
-
-  let initState = randomInitialState gen (difficultyFunc difficulty)
+  let initState = randomInitialState gen difficulty
   p1 <- newMVar 0.0
   p2 <- newMVar 0.0
   ball <- newMVar 0.0
-  forkIO $ (moveBot p2 ball)
-  -- forkIO (movePlayer1 (p1) initState)
-  playIO window background fps (initState, p1, p2, ball) render handleKeys update
+  botPoints <- newMVar 0
+  playerPoints <- newMVar 0
+  forkIO $ (moveBot p2 ball (difficultyFuncMovement difficulty))
+
+  playIO window background fps (initState, p1, p2, ball, playerPoints, botPoints) render handleKeys update
 
 render :: State -> IO Picture
-render (game, _, _, _) = return $ 
-  pictures [ball, walls,
-            mkPaddle white 700 $ player1 game,
-            mkPaddle white (-700) $ player2 game]
+render (game, _, _, _, scorePlayer, _) = do
+  -- p1 <- readMVar scorePlayer
+  -- bot <- readMVar scoreBot
+  return $ pictures [ball, walls, mkPaddle white 700 $ player1 game, mkPaddle white (-700) $ player2 game, color white $ translate (0) (240) $ scale (0.8) (0.8) $ (Text "-"), renderScore (scorePlayer1 game) 200, renderScore (scoreBot game) (-200)]
   where
     --  The pong ball.
     ball = uncurry translate (ballLoc game) $ color ballColor $ circleSolid ballRadius
@@ -165,113 +179,71 @@ render (game, _, _, _) = return $
 
     paddleColor = white
 
+renderScore :: Int -> Float -> Picture
+renderScore score pos = color white $ translate (pos) (240) $ scale (0.8) (0.8) $ (Text (show score))
+
 -- | Update the game by moving the ball.
 update :: Float -> State -> IO State
-update seconds (game, p1, p2, ball) = 
+update seconds (game, p1, p2, ball, score1, scoreBot) = 
   if gameEnded game'
   then do
     putStrLn "Game ended!"
     exitSuccess
+  else if checkForGoalBool game'
+    then do
+      gen <- getStdGen
+      return(randomGoalState gen game', p1, p2, ball, score1, scoreBot)
   else do
+
     m1 <- readMVar p1
     m2 <- readMVar p2
     b <- takeMVar ball
     putMVar ball (snd (ballLoc game'))
-    -- return (game' {player1 = m1, player2 = m2}, p1, p2, ball)
-
-    -- if S.member (Char 'd') (keys game)
-    --   then do
-    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
-    --     if player2 game' > -height/2 + 40
-    --       then do
-    --         return (game' { player2 = player2 game' - 10 }, p1, p2)
-    --     else return (game', p1, p2)
-    -- else if S.member (Char 'q') (keys game)
-    --   then do
-    --     exitSuccess
-    -- else return (game', p1, p2)
-
 
     if S.member (SpecialKey KeyUp) (keys game)
       then do
         let game' = paddleBounce . wallBounce . moveBall seconds $ game
         if player1 game' < height/2 - 40
           then do
-            return (game' { player1 = player1 game' + 10, player2 = m2 }, p1, p2, ball)
-        else return (game' {player2 = m2}, p1, p2, ball)
+            return (game' { player1 = player1 game' + move, player2 = m2 }, p1, p2, ball, score1, scoreBot)
+        else return (game' {player2 = m2}, p1, p2, ball, score1, scoreBot)
     else if S.member (SpecialKey KeyDown) (keys game)
       then do
         let game' = paddleBounce . wallBounce . moveBall seconds $ game
         if player1 game' > -height/2 + 40
           then do
-            return (game' { player1 = player1 game' - 10, player2 = m2 }, p1, p2, ball)
-        else return (game' {player2 = m2}, p1, p2, ball)
-    -- else if S.member (Char 'e') (keys game)
-    --   then do
-    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
-    --     if player2 game' < height/2 - 40
-    --       then do
-    --         return game' { player2 = player2 game' + 10 }
-    --     else return game'
-    -- else if S.member (Char 'd') (keys game)
-    --   then do
-    --     let game' = paddleBounce . wallBounce . moveBall seconds $ game
-    --     if player2 game' > -height/2 + 40
-    --       then do
-    --         return game' { player2 = player2 game' - 10 }
-    --     else return game'
+            return (game' { player1 = player1 game' - move, player2 = m2 }, p1, p2, ball, score1, scoreBot)
+        else return (game' {player2 = m2}, p1, p2, ball, score1, scoreBot)
     else if S.member (Char 'q') (keys game)
       then do
         exitSuccess
-    else return (game' {player2 = m2}, p1, p2, ball)
+    else return (game' {player2 = m2}, p1, p2, ball, score1, scoreBot)
   
 
   where
-    game' = paddleBounce . wallBounce . moveBall seconds $ game
+    game' = checkForGoal . paddleBounce . wallBounce . moveBall seconds $ game
+    move = difficultyFuncMovement (difficulty game')
 
 -- | Check if a game has ended.
 gameEnded :: PongGame -> Bool
-gameEnded game = farLeft || farRight
-  where
-    (x, _) = ballLoc game
-    farLeft = x < -fromIntegral width / 2 + 2 * ballRadius
-    farRight = x > fromIntegral width / 2 - 2 * ballRadius
+gameEnded game = scorePlayer1 game > 2 || scoreBot game > 2
+
+checkForGoal :: PongGame -> PongGame
+checkForGoal game
+  | fst(ballLoc game) < -fromIntegral width / 2 + 2 * ballRadius = game {scorePlayer1 = scorePlayer1 game + 1}
+  | fst(ballLoc game) > fromIntegral width / 2 - 2 * ballRadius = game {scoreBot = scoreBot game + 1}
+  | otherwise = game
+
+checkForGoalBool :: PongGame -> Bool
+checkForGoalBool game = fst(ballLoc game) < -fromIntegral width / 2 + 2 * ballRadius || fst(ballLoc game) > fromIntegral width / 2 - 2 * ballRadius
 
 -- | Respond to key events.
 handleKeys :: Event -> State -> IO State
-handleKeys (EventKey k Down _ _) (game, p1, p2, ball) = return $
- (game { keys = S.insert k (keys game)}, p1, p2, ball)
-handleKeys (EventKey k Up _ _) (game, p1, p2, ball) = return $
- (game { keys = S.delete k (keys game)}, p1, p2, ball)
-handleKeys _ (game, p1, p2, ball) = return (game, p1, p2, ball)
--- handleKeys event game = case event of
---   EventKey (Char 'q') _ _ _ -> exitSuccess
---   EventKey (Char 'e') _ _ _ -> return $
---     game { player2 = player2 game + 10 }
---   EventKey (Char 'd') _ _ _ ->  return $
---     game { player2 = player2 game - 10 }
---   EventKey (SpecialKey KeyUp) _ _ _ ->  return $
---     game { player1 = player1 game + 10 }
---   EventKey (SpecialKey KeyDown) _ _ _ ->  return $
---     game { player1 = player1 game - 10 }
---   _ -> return game
-
-handleKeys2 :: Event -> State -> IO State
-handleKeys2 (EventKey (SpecialKey KeyUp) _ _ _) (game, p1, p2, ball) = do
-  forkIO $ movePlayer p1 10
-  return (game, p1, p2, ball)
-handleKeys2 (EventKey (SpecialKey KeyDown) _ _ _) (game, p1, p2, ball) = do
-  forkIO $ movePlayer p1 (-10)
-  return (game, p1, p2, ball)
--- handleKeys2 (EventKey (Char 'e') _ _ _) (game, p1, p2, ball) = do
---   forkIO $ movePlayer p2 10
---   return (game, p1, p2, ball)
--- handleKeys2 (EventKey (Char 'd') _ _ _) (game, p1, p2, ball) = do
---   forkIO $ movePlayer p2 (-10)
---   return (game, p1, p2, ball)
-handleKeys2 (EventKey (Char 'q') _ _ _) (game, p1, p2, ball) = do
-  exitSuccess 
-handleKeys2 _ state = return state
+handleKeys (EventKey k Down _ _) (game, p1, p2, ball, score1, scoreBot) = return $
+ (game { keys = S.insert k (keys game)}, p1, p2, ball, score1, scoreBot)
+handleKeys (EventKey k Up _ _) (game, p1, p2, ball, score1, scoreBot) = return $
+ (game { keys = S.delete k (keys game)}, p1, p2, ball, score1, scoreBot)
+handleKeys _ (game, p1, p2, ball, score1, scoreBot) = return (game, p1, p2, ball, score1, scoreBot)
 
 -- | Given position and radius of the ball, return whether a collision occurred.
 wallCollision :: Position -> Radius -> Bool
